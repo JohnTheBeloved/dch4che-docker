@@ -1,0 +1,81 @@
+version: "3"
+
+services:
+  slapd:
+      image: dcm4che/slapd-dcm4chee:2.4.57-24.0
+      ports:
+        - '389:389'
+      environment:
+        - LDAP_ROOTPASS=${LDAP_ROOTPASS}
+        - STORAGE_DIR=/storage/fs1
+      volumes:
+        - ${WEB_DATA_PATH}/slapd/ldap:/var/lib/openldap/openldap-data
+        - ${WEB_DATA_PATH}/slapd/slapd.d:/etc/openldap/slapd.d
+        - ${WEB_DATA_PATH}/slapd/storage/fs1:/storage/fs1
+  pacs_db:
+    container_name: dcm4che_pacs_database
+    image: dcm4che/postgres-dcm4chee:13.3-24
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    ports:
+      - 5432:5432
+    volumes:
+      - ${WEB_DATA_PATH}/pacs_db/db:/var/lib/postgresql/data
+      - ${WEB_DATA_PATH}/pacs_db/localtime:/etc/localtime:ro
+      - '${WEB_DATA_PATH}/pacs_db/timezone:/etc/timezone:ro'
+  keycloak:
+    container_name: dcm4che_keycloak_service
+    image: dcm4che/keycloak:15.0.2
+    ports:
+      - 8880:8880
+      - 8843:8843
+      - 8990:8990
+      - 8993:8993
+    environment:
+      - KEYCLOAK_USER=${KEYCLOAK_USER}
+      - KEYCLOAK_PASSWORD=${KEYCLOAK_PASSWORD}
+      - KEYCLOAK_WAIT_FOR=slapd:389
+      - HTTP_PORT=8880
+      - HTTPS_PORT=8843
+      - MANAGEMENT_HTTP_PORT=8990
+      - MANAGEMENT_HTTPS_PORT=8993
+      - LDAP_ROOTPASS=${LDAP_ROOTPASS}
+      - LDAP_URL=ldap://slapd:389
+    volumes:
+      - ${WEB_DATA_PATH}/pacs_db/localtime:/etc/localtime:ro
+      - '${WEB_DATA_PATH}/pacs_db/timezone:/etc/timezone:ro'
+      - ${WEB_DATA_PATH}/keycloak:/opt/keycloak/standalone
+  pacs_archive:
+    container_name: dcm4che_pacs_service
+    image: dcm4che/dcm4chee-arc-psql:5.24.0-secure-ui
+    restart: always
+    ports:
+      - '8080:8080'
+      - '8443:8443'
+      - '9990:9990'
+      - '9993:9993'
+      - '11112:11112'
+      - '2762:2762'
+      - '2575:2575'
+      - '12575:12575'
+    volumes: 
+      - ${WEB_DATA_PATH}/wildfly:/opt/wildfly/standalone
+    environment: 
+      - LDAP_URL=ldap://slapd:389
+      - LDAP_BASE_DN=dc=dcm4che,dc=org
+      - POSTGRES_HOST=pacs_db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - GELF_LEVEL=debug
+      - WILDFLY_ADMIN_USER=admin
+      - WILDFLY_ADMIN_PASSWORD=password
+      - WILDFLY_CHOWN=/opt/wildfly/standalone /storage
+      - LDAP_ROOTPASS=${LDAP_ROOTPASS}
+      - WILDFLY_ADMIN_OIDC=false
+      - AUTH_SERVER_URL=https://dcm4che.local:8843/auth
+    depends_on: [pacs_db, slapd]
